@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Nothing new.
 
+## [2.1.0-fork] - 2024/06/14
+
+### Additions
+
+- **Google Gemini Models**: In addition to the original OpenAI models, this version now supports Google Gemini models for enhanced documentation generation capabilities.
+
+- **Proxy Support**: Added support for accessing models through a proxy, ensuring compatibility with various network configurations.
+
 ## [2.1.0] - 2024/04/12
 
 ### Changes
