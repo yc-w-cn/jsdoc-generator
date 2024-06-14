@@ -1,8 +1,8 @@
 {
   "name": "jsdoc-generator",
   "displayName": "JSDoc Generator",
-  "description": "Automatic JSDoc generator for TypeScript and JavaScript.",
-  "publisher": "crystal-spider",
+  "description": "Enhanced JSDoc automated generation with added support for proxy and Gemini model.",
+  "publisher": "yc-w-cn",
   "icon": "jsdoc-generator.png",
   "version": "2.1.0-fork",
   "engines": {
@@ -198,7 +198,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Nyphet/jsdoc-generator.git"
+    "url": "https://github.com/yc-w-cn/jsdoc-generator.git"
   },
   "scripts": {
     "package": "vsce package",
