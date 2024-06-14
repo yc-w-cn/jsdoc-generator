@@ -4,6 +4,15 @@ Automatic JSDoc generator for JavaScript, TypeScript and Typescript/JavaScript R
 
 ---
 
+## Fork Description
+
+This version is a fork of the [JSDoc Automated Generation](https://github.com/Crystal-Spider/jsdoc-generator) project.
+
+### Added Features
+
+- **Google Gemini Models**: In addition to the original OpenAI models, this version now supports Google Gemini models for enhanced documentation generation capabilities.
+- **Proxy Support**: Added support for accessing models through a proxy, ensuring compatibility with various network configurations.
+
 ## Features
 
 Generates specific JSDoc for any supported TypeScript/JavaScript node.
@@ -161,6 +170,9 @@ This extension contributes the following settings:
 - `jsdoc-generator.generateDescriptionForReturns`:  
   When using AI generation, generate descriptions for method return values too.  
   When enabled, makes JSDoc generation slower and use more API calls.
+- `jsdoc-generator.proxy`:  
+  When using AI generation, utilize a proxy to request models.
+  Enabling this option may affect the speed due to the additional network layer.
 
 ---
 

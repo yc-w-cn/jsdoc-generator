@@ -1,3 +1,4 @@
+import {FunctionCallingMode, FunctionDeclarationSchemaType, GoogleGenerativeAI} from '@google/generative-ai';
 import {OpenAI} from 'openai';
 import PaLM from 'palm-api';
 
@@ -8,7 +9,13 @@ import {SummarizedParameter, getConfig} from './extension';
  *
  * @typedef {NodeType}
  */
-type NodeType = 'function' | 'class' | 'interface' | 'type' | 'enum' | 'property';
+type NodeType =
+  | 'function'
+  | 'class'
+  | 'interface'
+  | 'type'
+  | 'enum'
+  | 'property';
 
 /**
  * Generative AI model.
@@ -44,7 +51,7 @@ abstract class GenerativeModel<T> {
    *
    * @protected
    * @readonly
-   * @type {("gpt-3.5-turbo" | "gpt-4")}
+   * @type {("gpt-3.5-turbo" | "gpt-4" | "gemini-1.5-pro-latest" | "gemini-1.5-flash-latest")}
    */
   protected get model() {
     return getConfig('generativeModel', 'gpt-3.5-turbo');
@@ -89,7 +96,10 @@ abstract class GenerativeModel<T> {
    * @param {NodeType} type
    * @returns {Promise<string | undefined>}
    */
-  public abstract describeSnippet(content: string, type: NodeType): Promise<string | undefined>;
+  public abstract describeSnippet(
+    content: string,
+    type: NodeType
+  ): Promise<string | undefined>;
 
   /**
    * Describes parameters or type parameters.
@@ -102,7 +112,12 @@ abstract class GenerativeModel<T> {
    * @param {SummarizedParameter[]} parameters
    * @returns {Promise<string[] | undefined>} list of parameter descriptions, in the same order as the {@code parameters} parameter.
    */
-  public abstract describeParameters(content: string, type: NodeType, generics: boolean, parameters: SummarizedParameter[]): Promise<string[] | undefined>;
+  public abstract describeParameters(
+    content: string,
+    type: NodeType,
+    generics: boolean,
+    parameters: SummarizedParameter[]
+  ): Promise<string[] | undefined>;
 
   /**
    * Describes a function return value.
@@ -125,52 +140,66 @@ abstract class GenerativeModel<T> {
 class GenerativeOpenAI extends GenerativeModel<OpenAI> {
   /**
    * @inheritdoc
-   * 
+   *
    * @override
    */
   protected override init(): OpenAI {
-    return new OpenAI({apiKey: this.apiKey});
+    const proxy = getConfig('proxy', '');
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    const {HttpsProxyAgent} = require('https-proxy-agent');
+    return new OpenAI({apiKey: this.apiKey, httpAgent: proxy ? new HttpsProxyAgent(proxy) : undefined});
   }
 
   /**
    * @inheritdoc
-   * 
+   *
    * @override
    */
-  public override async describeSnippet(content: string, type: NodeType): Promise<string | undefined> {
+  public override async describeSnippet(
+    content: string,
+    type: NodeType
+  ): Promise<string | undefined> {
     if (this.api) {
-      const args = (await this.api.chat.completions.create({
-        model: this.model,
-        functions: [
-          {
-            name: 'generate_jsdoc',
-            description: `Given the ${type} textual (no tags) description in ${GenerativeModel.language}, generates its JSDoc`,
-            parameters: {
-              type: 'object',
-              properties: {
-                description: {
-                  type: 'string',
-                  description: `The ${type} description in ${GenerativeModel.language}, without tags and no ${type !== 'function' && type !== 'enum' ? 'attributes, methods, or' : ''}parameters or type parameters description. Each sentence on a new line.`
-                }
-              },
-              required: ['description']
+      const args = (
+        await this.api.chat.completions.create({
+          model: this.model,
+          functions: [
+            {
+              name: 'generate_jsdoc',
+              description: `Given the ${type} textual (no tags) description in ${GenerativeModel.language}, generates its JSDoc`,
+              parameters: {
+                type: 'object',
+                properties: {
+                  description: {
+                    type: 'string',
+                    description: `The ${type} description in ${
+                      GenerativeModel.language
+                    }, without tags and no ${
+                      type !== 'function' && type !== 'enum' ?
+                        'attributes, methods, or' :
+                        ''
+                    }parameters or type parameters description. Each sentence on a new line.`
+                  }
+                },
+                required: ['description']
+              }
             }
-          }
-        ],
-        // eslint-disable-next-line @typescript-eslint/naming-convention, camelcase
-        function_call: {
-          name: 'generate_jsdoc'
-        },
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a TypeScript description generator'
-          }, {
-            role: 'user',
-            content: `Generate the JSDoc for this ${type} in ${GenerativeModel.language}:\n${content}`
-          }
-        ]
-      })).choices[0].message.function_call?.arguments;
+          ],
+          // eslint-disable-next-line @typescript-eslint/naming-convention, camelcase
+          function_call: {
+            name: 'generate_jsdoc'
+          },
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a TypeScript description generator'
+            }, {
+              role: 'user',
+              content: `Generate the JSDoc for this ${type} in ${GenerativeModel.language}:\n${content}`
+            }
+          ]
+        })
+      ).choices[0].message.function_call?.arguments;
       if (args) {
         try {
           return JSON.parse(args).description;
@@ -184,48 +213,78 @@ class GenerativeOpenAI extends GenerativeModel<OpenAI> {
 
   /**
    * @inheritdoc
-   * 
+   *
    * @override
    */
-  public override async describeParameters(content: string, type: NodeType, generics: boolean, parameters: SummarizedParameter[]): Promise<string[] | undefined> {
+  public override async describeParameters(
+    content: string,
+    type: NodeType,
+    generics: boolean,
+    parameters: SummarizedParameter[]
+  ): Promise<string[] | undefined> {
     if (this.api) {
-      const args = (await this.api.chat.completions.create({
-        model: this.model,
-        functions: [
-          {
-            name: 'generate_jsdoc',
-            description: `Given the ${generics ? 'type ' : ''} parameters textual descriptions in ${GenerativeModel.language}, generates its JSDoc`,
-            parameters: {
-              type: 'object',
-              properties: {
-                descriptions: {
-                  type: 'object',
-                  description: `A record of <${generics ? 'type ' : ''} parameter name, description in ${GenerativeModel.language}> pairs`,
-                  properties: parameters.reduce((prev, curr) => ({...prev, [curr.name]: {type: 'string', description: `Textual description in ${GenerativeModel.language} for the ${curr.name} ${generics ? 'type ' : ''} parameter`} }), {})
-                }
-              },
-              required: ['descriptions']
+      const args = (
+        await this.api.chat.completions.create({
+          model: this.model,
+          functions: [
+            {
+              name: 'generate_jsdoc',
+              description: `Given the ${
+                generics ? 'type ' : ''
+              } parameters textual descriptions in ${
+                GenerativeModel.language
+              }, generates its JSDoc`,
+              parameters: {
+                type: 'object',
+                properties: {
+                  descriptions: {
+                    type: 'object',
+                    description: `A record of <${
+                      generics ? 'type ' : ''
+                    } parameter name, description in ${
+                      GenerativeModel.language
+                    }> pairs`,
+                    properties: parameters.reduce(
+                      (prev, curr) => ({
+                        ...prev,
+                        [curr.name]: {
+                          type: 'string',
+                          description: `Textual description in ${
+                            GenerativeModel.language
+                          } for the ${curr.name} ${
+                            generics ? 'type ' : ''
+                          } parameter`
+                        }
+                      }),
+                      {}
+                    )
+                  }
+                },
+                required: ['descriptions']
+              }
             }
-          }
-        ],
-        // eslint-disable-next-line @typescript-eslint/naming-convention, camelcase
-        function_call: {
-          name: 'generate_jsdoc'
-        },
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a TypeScript description generator'
-          }, {
-            role: 'user',
-            content: `Generate the JSDoc for this ${type} in ${GenerativeModel.language}:\n${content}`
-          }
-        ]
-      })).choices[0].message.function_call?.arguments;
+          ],
+          // eslint-disable-next-line @typescript-eslint/naming-convention, camelcase
+          function_call: {
+            name: 'generate_jsdoc'
+          },
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a TypeScript description generator'
+            }, {
+              role: 'user',
+              content: `Generate the JSDoc for this ${type} in ${GenerativeModel.language}:\n${content}`
+            }
+          ]
+        })
+      ).choices[0].message.function_call?.arguments;
       if (args) {
         try {
           const {descriptions} = JSON.parse(args);
-          return descriptions ? parameters.map(param => descriptions[param.name] ?? '') : [];
+          return descriptions ?
+            parameters.map(param => descriptions[param.name] ?? '') :
+            [];
         } catch (error) {
           // Return undefined below.
         }
@@ -236,43 +295,47 @@ class GenerativeOpenAI extends GenerativeModel<OpenAI> {
 
   /**
    * @inheritdoc
-   * 
+   *
    * @override
    */
-  public override async describeReturn(content: string): Promise<string | undefined> {
+  public override async describeReturn(
+    content: string
+  ): Promise<string | undefined> {
     if (this.api) {
-      const args = (await this.api.chat.completions.create({
-        model: this.model,
-        functions: [
-          {
-            name: 'generate_jsdoc',
-            description: `Given the function return value textual description in ${GenerativeModel.language}, generates its JSDoc`,
-            parameters: {
-              type: 'object',
-              properties: {
-                description: {
-                  type: 'string',
-                  description: `The return value description in ${GenerativeModel.language}`
-                }
-              },
-              required: ['description']
+      const args = (
+        await this.api.chat.completions.create({
+          model: this.model,
+          functions: [
+            {
+              name: 'generate_jsdoc',
+              description: `Given the function return value textual description in ${GenerativeModel.language}, generates its JSDoc`,
+              parameters: {
+                type: 'object',
+                properties: {
+                  description: {
+                    type: 'string',
+                    description: `The return value description in ${GenerativeModel.language}`
+                  }
+                },
+                required: ['description']
+              }
             }
-          }
-        ],
-        // eslint-disable-next-line @typescript-eslint/naming-convention, camelcase
-        function_call: {
-          name: 'generate_jsdoc'
-        },
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a TypeScript description generator'
-          }, {
-            role: 'user',
-            content: `Generate the JSDoc for this function in ${GenerativeModel.language}:\n${content}`
-          }
-        ]
-      })).choices[0].message.function_call?.arguments;
+          ],
+          // eslint-disable-next-line @typescript-eslint/naming-convention, camelcase
+          function_call: {
+            name: 'generate_jsdoc'
+          },
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a TypeScript description generator'
+            }, {
+              role: 'user',
+              content: `Generate the JSDoc for this function in ${GenerativeModel.language}:\n${content}`
+            }
+          ]
+        })
+      ).choices[0].message.function_call?.arguments;
       if (args) {
         try {
           return JSON.parse(args).description;
@@ -286,7 +349,268 @@ class GenerativeOpenAI extends GenerativeModel<OpenAI> {
 }
 
 /**
- * Generative AI functionalities wrapper.  
+ * Generative AI model from GoogleGemini.
+ *
+ * @class GenerativeGoogleGemini
+ * @typedef {GenerativeGoogleGemini}
+ * @extends {GenerativeModel<GoogleGenerativeAI>}
+ */
+class GenerativeGoogleGemini extends GenerativeModel<GoogleGenerativeAI> {
+  /**
+   * @inheritdoc
+   *
+   * @override
+   */
+  protected override init(): GoogleGenerativeAI {
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    const {setGlobalDispatcher, ProxyAgent} = require('undici');
+    const proxy = getConfig('proxy', '');
+    if (proxy) {
+      const dispatcher = new ProxyAgent({uri: new URL(proxy).toString()});
+      // Use proxy to fetch globally.
+      setGlobalDispatcher(dispatcher);
+    }
+    return new GoogleGenerativeAI(this.apiKey);
+  }
+
+  /**
+   * @inheritdoc
+   *
+   * @override
+   */
+  public override async describeSnippet(
+    content: string,
+    type: NodeType
+  ): Promise<string | undefined> {
+    if (this.api) {
+      const genAI = this.api.getGenerativeModel({
+        model: this.model,
+        tools: [
+          {
+            functionDeclarations: [
+              {
+                name: 'generate_jsdoc',
+                description: `Given the ${type} textual (no tags) description in ${GenerativeModel.language}, generates its JSDoc`,
+                parameters: {
+                  type: FunctionDeclarationSchemaType.OBJECT,
+                  properties: {
+                    description: {
+                      type: FunctionDeclarationSchemaType.STRING,
+                      description: `The ${type} description in ${
+                        GenerativeModel.language
+                      }, without tags and no ${
+                        type !== 'function' && type !== 'enum' ?
+                          'attributes, methods, or' :
+                          ''
+                      }parameters or type parameters description. Each sentence on a new line.`
+                    }
+                  },
+                  required: ['description']
+                }
+              }
+            ]
+          }
+        ],
+        toolConfig: {
+          functionCallingConfig: {
+            /**
+             * ANY mode forces the model to predict a function call.
+             * @see {@link https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/function-calling}
+             */
+            mode: FunctionCallingMode.ANY
+          }
+        }
+      }, {apiVersion: 'v1beta'});
+      const res = await genAI.generateContent({
+        contents: [
+          {
+            role: 'model',
+            parts: [
+              {
+                text: 'You are a TypeScript description generator'
+              }
+            ]
+          }, {
+            role: 'user',
+            parts: [
+              {
+                text: `Generate the JSDoc for this ${type} in ${GenerativeModel.language}:\n${content}`
+              }
+            ]
+          }
+        ]
+      });
+      try {
+        return (res.response.functionCalls()?.[0].args as any).description;
+      } catch (error) {
+        // Return undefined below.
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * @inheritdoc
+   *
+   * @override
+   */
+  public override async describeParameters(
+    content: string,
+    type: NodeType,
+    generics: boolean,
+    parameters: SummarizedParameter[]
+  ): Promise<string[] | undefined> {
+    if (this.api) {
+      const genAI = this.api.getGenerativeModel({
+        model: this.model,
+        tools: [
+          {
+            functionDeclarations: [
+              {
+                name: 'generate_jsdoc',
+                description: `Given the ${
+                  generics ? 'type ' : ''
+                } parameters textual descriptions in ${
+                  GenerativeModel.language
+                }, generates its JSDoc`,
+                parameters: {
+                  type: FunctionDeclarationSchemaType.OBJECT,
+                  properties: {
+                    descriptions: {
+                      type: FunctionDeclarationSchemaType.OBJECT,
+                      description: `A record of <${
+                        generics ? 'type ' : ''
+                      } parameter name, description in ${
+                        GenerativeModel.language
+                      }> pairs`,
+                      properties: parameters.reduce(
+                        (prev, curr) => ({
+                          ...prev,
+                          [curr.name]: {
+                            type: 'string',
+                            description: `Textual description in ${
+                              GenerativeModel.language
+                            } for the ${curr.name} ${
+                              generics ? 'type ' : ''
+                            } parameter`
+                          }
+                        }),
+                        {}
+                      )
+                    }
+                  },
+                  required: ['descriptions']
+                }
+              }
+            ]
+          }
+        ],
+        toolConfig: {
+          functionCallingConfig: {
+            /**
+             * ANY mode forces the model to predict a function call.
+             * @see {@link https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/function-calling}
+             */
+            mode: FunctionCallingMode.ANY
+          }
+        }
+      }, {apiVersion: 'v1beta'});
+      const res = await genAI.generateContent({
+        contents: [
+          {
+            role: 'model',
+            parts: [{text: 'You are a TypeScript description generator'}]
+          }, {
+            role: 'user',
+            parts: [{text: `Generate the JSDoc for this ${type} in ${GenerativeModel.language}:\n${content}`}]
+          }
+        ]
+      });
+
+      try {
+        const {descriptions} = res.response.functionCalls()?.[0].args as any;
+        return descriptions ?
+          parameters.map(param => descriptions[param.name] ?? '') :
+          [];
+      } catch (error) {
+        // Return undefined below.
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * @inheritdoc
+   *
+   * @override
+   */
+  public override async describeReturn(
+    content: string
+  ): Promise<string | undefined> {
+    if (this.api) {
+      const genAI = this.api.getGenerativeModel({
+        model: this.model,
+        tools: [
+          {
+            functionDeclarations: [
+              {
+                name: 'generate_jsdoc',
+                description: `Given the function return value textual description in ${GenerativeModel.language}, generates its JSDoc`,
+                parameters: {
+                  type: FunctionDeclarationSchemaType.OBJECT,
+                  properties: {
+                    description: {
+                      type: FunctionDeclarationSchemaType.STRING,
+                      description: `The return value description in ${GenerativeModel.language}`
+                    }
+                  },
+                  required: ['description']
+                }
+              }
+            ]
+          }
+        ],
+        toolConfig: {
+          functionCallingConfig: {
+          /**
+           * ANY mode forces the model to predict a function call.
+           * @see {@link https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/function-calling}
+           */
+            mode: FunctionCallingMode.ANY
+          }
+        }
+      }, {apiVersion: 'v1beta'});
+      const res = await genAI.generateContent({
+        contents: [
+          {
+            role: 'model',
+            parts: [
+              {
+                text: 'You are a TypeScript description generator'
+              }
+            ]
+          }, {
+            role: 'user',
+            parts: [
+              {
+                text: `Generate the JSDoc for this function in ${GenerativeModel.language}:\n${content}`
+              }
+            ]
+          }
+        ]
+      });
+      try {
+        return (res.response.functionCalls()?.[0].args as any).description;
+      } catch (error) {
+      // Return undefined below.
+      }
+    }
+    return undefined;
+  }
+}
+
+/**
+ * Generative AI functionalities wrapper.
  * Handles the use of whichever generative model is selected by the user.
  *
  * @export
@@ -295,13 +619,13 @@ class GenerativeOpenAI extends GenerativeModel<OpenAI> {
  */
 class GenerativeAPI {
   /**
-   * AI Generator model instance. 
+   * AI Generator model instance.
    *
    * @private
    * @static
-   * @type {?GenerativeModel<OpenAI | PaLM>}
+   * @type {?GenerativeModel<OpenAI | PaLM | GoogleGenerativeAI>}
    */
-  private static generator?: GenerativeModel<OpenAI | PaLM>;
+  private static generator?: GenerativeModel<OpenAI | PaLM | GoogleGenerativeAI>;
 
   /**
    * Selected model.
@@ -309,7 +633,7 @@ class GenerativeAPI {
    * @private
    * @static
    * @readonly
-   * @type {'gpt-3.5-turbo' | 'gpt-4'}
+   * @type {'gpt-3.5-turbo' | 'gpt-4' | 'gemini-1.5-pro-latest' | 'gemini-1.5-flash-latest'}
    */
   private static get model() {
     return getConfig('generativeModel', 'gpt-3.5-turbo');
@@ -323,7 +647,9 @@ class GenerativeAPI {
    * @returns {boolean} whether the {@link GenerativeModel} instance is loaded.
    */
   public static tryInit(): boolean {
-    if (getConfig('generativeApiKey', '')) {
+    if (getConfig('generativeModel', 'gpt-3.5-turbo').startsWith('gemini')) {
+      GenerativeAPI.generator = new GenerativeGoogleGemini();
+    } else if (getConfig('generativeApiKey', '')) {
       GenerativeAPI.generator = new GenerativeOpenAI();
     } else {
       GenerativeAPI.generator = undefined;
@@ -341,8 +667,14 @@ class GenerativeAPI {
    * @param {NodeType} type
    * @returns {Promise<string | undefined>}
    */
-  public static async describeSnippet(content: string, type: NodeType): Promise<string | undefined> {
-    return (GenerativeAPI.canGenerate() && await GenerativeAPI.generator?.describeSnippet(content.trim(), type));
+  public static async describeSnippet(
+    content: string,
+    type: NodeType
+  ): Promise<string | undefined> {
+    return (
+      GenerativeAPI.canGenerate() &&
+      (await GenerativeAPI.generator?.describeSnippet(content.trim(), type))
+    );
   }
 
   /**
@@ -357,8 +689,28 @@ class GenerativeAPI {
    * @param {SummarizedParameter[]} parameters
    * @returns {Promise<string[] | undefined>}
    */
-  public static async describeParameters(content: string, type: NodeType, generics: boolean, parameters: SummarizedParameter[]): Promise<string[] | undefined> {
-    return GenerativeAPI.canGenerate(getConfig(generics ? 'generateDescriptionForTypeParameters' : 'generateDescriptionForParameters', false)) && await GenerativeAPI.generator?.describeParameters(content.trim(), type, generics, parameters);
+  public static async describeParameters(
+    content: string,
+    type: NodeType,
+    generics: boolean,
+    parameters: SummarizedParameter[]
+  ): Promise<string[] | undefined> {
+    return (
+      GenerativeAPI.canGenerate(
+        getConfig(
+          generics ?
+            'generateDescriptionForTypeParameters' :
+            'generateDescriptionForParameters',
+          false
+        )
+      ) &&
+      (await GenerativeAPI.generator?.describeParameters(
+        content.trim(),
+        type,
+        generics,
+        parameters
+      ))
+    );
   }
 
   /**
@@ -370,8 +722,14 @@ class GenerativeAPI {
    * @param {string} content
    * @returns {Promise<string | undefined>}
    */
-  public static async describeReturn(content: string): Promise<string | undefined> {
-    return GenerativeAPI.canGenerate(getConfig('generateDescriptionForReturns', false)) && await GenerativeAPI.generator?.describeReturn(content.trim());
+  public static async describeReturn(
+    content: string
+  ): Promise<string | undefined> {
+    return (
+      GenerativeAPI.canGenerate(
+        getConfig('generateDescriptionForReturns', false)
+      ) && (await GenerativeAPI.generator?.describeReturn(content.trim()))
+    );
   }
 
   /**

@@ -169,9 +169,9 @@ interface Configuration {
   /**
    * Generative AI model.
    *
-   * @type {('gpt-3.5-turbo' | 'gpt-4')}
+   * @type {('gpt-3.5-turbo' | 'gpt-4' | 'gemini-1.5-pro-latest' | 'gemini-1.5-flash-latest')}
    */
-  generativeModel: 'gpt-3.5-turbo' | 'gpt-4';
+  generativeModel: 'gpt-3.5-turbo' | 'gpt-4' | 'gemini-1.5-pro-latest' | 'gemini-1.5-flash-latest';
   /**
    * Language of the generated descriptions.
    *
@@ -199,6 +199,13 @@ interface Configuration {
    * @type {boolean}
    */
   generateDescriptionForReturns: boolean;
+  /**
+   * When using AI generation, utilize a proxy to request models. 
+   * Enabling this option may affect the speed due to the additional network layer.
+   * 
+   * @type {string}
+   */
+  proxy: string;
 }
 
 /**

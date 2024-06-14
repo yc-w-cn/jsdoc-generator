@@ -143,7 +143,9 @@
           "type": "string",
           "enum": [
             "gpt-3.5-turbo",
-            "gpt-4"
+            "gpt-4",
+            "gemini-1.5-pro-latest",
+            "gemini-1.5-flash-latest"
           ],
           "default": "gpt-3.5-turbo",
           "description": "Generative AI model to use to generate JSDoc decriptions.\nEnable the model with an API key.\nNote that jsdoc-generator.descriptionPlaceholder will take precedence."
@@ -185,6 +187,11 @@
           "type": "boolean",
           "default": false,
           "description": "When using AI generation, generate descriptions for method return values too.\nWhen enabled, makes JSDoc generation slower and use more API calls."
+        },
+        "jsdoc-generator.proxy": {
+          "type": "string",
+          "default": "",
+          "description": "When using AI generation, utilize a proxy to request models. \nEnabling this option may affect the speed due to the additional network layer."
         }
       }
     }
@@ -210,6 +217,7 @@
     "eslint:fix": "npx eslint . --ext .js,.ts --fix"
   },
   "devDependencies": {
+    "@google/generative-ai": "^0.12.0",
     "@types/glob": "^7.1.1",
     "@types/mocha": "^10.0.1",
     "@types/node": "^20.4.4",
@@ -222,11 +230,13 @@
     "eslint-plugin-jsdoc": "^46.4.4",
     "eslint-plugin-unused-imports": "^3.0.0",
     "glob": "^7.1.4",
+    "https-proxy-agent": "^7.0.4",
     "mocha": "^10.2.0",
     "moment": "^2.30.1",
     "openai": "^4.0.0-beta.6",
     "palm-api": "^1.1.0",
     "typescript": "^5.1.6",
+    "undici": "^6.18.2",
     "vsce": "^2.15.0",
     "vscode-test": "^1.5.2"
   }
